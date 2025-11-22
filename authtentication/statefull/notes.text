@@ -1,0 +1,446 @@
+                         ┌───────────────────────────────────────────────┐
+                         │   Stateful Authentication Backend System      │
+                         │     (Node.js + Express + MongoDB + Sessions)  │
+                         └───────────────────────────────────────────────┘
+
+                                         │
+                                         ▼
+                            ┌───────────────────────────┐
+                            │      Client (Frontend)    │
+                            │  (Postman / React App)    │
+                            └─────────────┬─────────────┘
+                                          │
+                              HTTP Requests (JSON)
+                                          │
+                         ┌────────────────┴────────────────┐
+                         │           index.js              │
+                         │   (Main server entry point)     │
+                         │   - Loads env vars (.env)       │
+                         │   - Connects to MongoDB         │
+                         │   - Configures express-session  │
+                         │   - Registers Routes            │
+                         └────────────────┬────────────────┘
+                                          │
+                    ┌─────────────────────┼─────────────────────┐
+                    │                                           │
+         ┌────────────────────┐                       ┌────────────────────┐
+         │   /api/user Routes │                       │   /api/task Routes │
+         │ (user.routes.js)   │                       │ (task.routes.js)   │
+         └──────┬─────────────┘                       └──────┬─────────────┘
+                │                                            │
+        ┌───────▼────────────────┐                 ┌─────────▼─────────────┐
+        │ user.controller.js     │                 │ task.controller.js    │
+        │ - signup()             │                 │ - addTask()           │
+        │ - login()              │                 │ - fetchTasks()        │
+        │ - logout() (optional)  │                 └─────────┬─────────────┘
+        └─────────┬──────────────┘                           │
+                  │                                           │
+        ┌─────────▼──────────────┐                 ┌──────────▼────────────┐
+        │ user.service.js        │                 │ task.service.js       │
+        │ - registerUser()       │                 │ - createTask()        │
+        │ - loginUser()          │                 │ - getTasks()          │
+        │ - handle bcrypt + DB   │                 │ - DB interaction      │
+        └─────────┬──────────────┘                 └──────────┬────────────┘
+                  │                                           │
+        ┌─────────▼──────────────┐                 ┌──────────▼────────────┐
+        │ user.model.js          │                 │ task.model.js         │
+        │ - username, password   │                 │ - userId, title, desc │
+        │ - bcrypt hashed pw     │                 │ - timestamps          │
+        │ - Mongoose schema      │                 │ - Mongoose schema     │
+        └─────────┬──────────────┘                 └──────────┬────────────┘
+                  │                                           │
+                  └──────────────► MongoDB ◄──────────────────┘
+                          (Database storing Users & Tasks)
+                          ┌──────────────────────────────┐
+                          │   Database: task (MongoDB)   │
+                          │   Collections:               │
+                          │   - users                    │
+                          │   - tasks                    │
+                          └──────────────────────────────┘
+
+
+────────────────────────────────────────────────────────────────────────────
+        🔐 SESSION MANAGEMENT (Stateful Authentication)
+────────────────────────────────────────────────────────────────────────────
+                           ┌────────────────────────────┐
+                           │ express-session middleware │
+                           │ (Configured in index.js)   │
+                           │                           │
+                           │ - Uses SESSION_SECRET      │
+                           │ - Cookie expires in 10 min │
+                           │ - Stores userId in session │
+                           └───────────┬────────────────┘
+                                       │
+                              Session Cookie Flow
+                                       │
+      ┌────────────────────────────────┼────────────────────────────────┐
+      │                                │                                │
+      │                        ┌────────▼────────┐                      │
+      │                        │ validateSession │                      │
+      │                        │ middleware.js   │                      │
+      │                        │ - Checks req.session.userId            │
+      │                        │ - If not found → 401 Unauthorized       │
+      │                        └────────┬────────┘                      │
+      │                                 │                               │
+      │                         Authenticated requests only             │
+      └────────────────────────────────┼────────────────────────────────┘
+                                       │
+                            Only authenticated users can:
+                            - Create tasks
+                            - View their own tasks
+────────────────────────────────────────────────────────────────────────────
+
+⚙️ CONFIGURATION & SECURITY
+────────────────────────────────────────────────────────────────────────────
+┌────────────────────┐      ┌───────────────────────────┐
+│ .env               │      │ config/db.js              │
+│ - PORT             │      │ - Connects to MongoDB     │
+│ - MONGO_URI        │      │ - Uses Mongoose           │
+│ - SESSION_SECRET   │      │ - Handles connection logs │
+└────────────────────┘      └───────────────────────────┘
+
+🔒 Security:
+- Passwords hashed with bcrypt (saltRounds = 10)
+- No JWTs (stateful sessions instead)
+- Username uniqueness enforced by Mongoose
+- Proper error handling in controllers/services
+────────────────────────────────────────────────────────────────────────────
+
+
+📊 DATA FLOW EXAMPLE (Step-by-step)
+────────────────────────────────────────────────────────────────────────────
+1️⃣ Signup:
+Client → POST /api/user/signup  
+→ userController.signup()  
+→ userService.registerUser()  
+→ bcrypt.hash(password)  
+→ User.save() → MongoDB  
+
+2️⃣ Login:
+Client → POST /api/user/login  
+→ userController.login()  
+→ userService.loginUser()  
+→ bcrypt.compare()  
+→ if success → req.session.userId = user._id  
+→ sends cookie to client  
+
+3️⃣ Create Task:
+Client (with cookie) → POST /api/task/  
+→ validateSession middleware  
+→ taskController.addTask()  
+→ taskService.createTask()  
+→ Task.save() (userId attached from session)  
+
+4️⃣ Fetch Tasks:
+Client (with cookie) → GET /api/task/  
+→ validateSession middleware  
+→ taskController.fetchTasks()  
+→ taskService.getTasks()  
+→ Task.find({ userId: req.session.userId })  
+
+────────────────────────────────────────────────────────────────────────────
+Summary:
+
+index.js initializes everything (session, DB, routes).
+
+Routes forward requests to controllers.
+
+Controllers handle HTTP logic & call services.
+
+Services handle business logic + DB operations.
+
+Models define MongoDB schema (User, Task).
+
+Session middleware ensures authenticated access to tasks.
+
+Session data (userId) is stored server-side — stateful authentication.
+
+
+
+What Is Session Management?
+
+Session management is how a server keeps track of which client (user) is currently logged in — across multiple requests.
+
+In HTTP, each request is stateless — meaning:
+
+Every new request is independent; the server doesn’t automatically remember who you are.
+
+To solve that, stateful session authentication uses sessions stored on the server — so the server can remember you between requests.
+
+🔒 Stateful Authentication: Concept Overview
+
+In stateful authentication, after a successful login:
+
+The server creates a session for the user.
+
+The session data (e.g., userId) is stored in memory or a database on the server.
+
+The server sends back a session ID to the client — inside a cookie.
+
+On every future request, the client automatically sends that cookie back.
+
+The server looks up the session ID → retrieves the stored user info → identifies the user.
+
+So the “state” (who is logged in) lives on the server — that’s why it’s called stateful.
+
+⚙️ How It Works in Your Project
+1️⃣ Login Flow
+
+Route: POST /api/user/login
+
+Flow:
+
+Client → Server (username, password)
+Server → Verifies credentials
+        → Creates a session object
+        → Stores session in server memory
+        → Attaches sessionId to a cookie
+Client ← Receives cookie
+
+
+Example:
+
+req.session.userId = user._id;
+
+
+This line stores the user’s ID in their session.
+
+2️⃣ Session Cookie
+
+Once logged in, the server gives the client a session cookie like:
+
+connect.sid = s%3AA7d3x....abcd
+
+
+This cookie is stored automatically by the browser or Postman.
+
+It gets sent automatically with every new request to the same server.
+
+So when the user sends another request (like creating a task), the server knows who it is based on that cookie.
+
+3️⃣ Session Validation Middleware
+
+File: middlewares/session.middleware.js
+
+This middleware protects private routes (like /api/task):
+
+export const validateSession = (req, res, next) => {
+  if (!req.session.userId) {
+    return res.status(401).json({ message: 'Unauthorized: Please log in' });
+  }
+  next();
+};
+
+
+✅ If req.session.userId exists → user is logged in
+❌ If not → request is rejected
+
+4️⃣ Session Expiration
+
+In your configuration, sessions expire after 10 minutes of inactivity:
+
+app.use(session({
+  secret: process.env.SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: { maxAge: 10 * 60 * 1000 } // 10 minutes
+}));
+
+
+After that time, the session data is deleted, and the user must log in again.
+
+5️⃣ Logout Flow
+
+When a user logs out, their session is destroyed:
+
+req.session.destroy((err) => {
+  if (err) return res.status(500).json({ message: 'Logout failed' });
+  res.clearCookie('connect.sid');
+  res.json({ message: 'Logged out successfully' });
+});
+
+
+That means:
+
+The session data is removed from the server.
+
+The session cookie on the client becomes useless.
+
+
+Comparison: Stateful vs Stateless (JWT)
+Feature	Stateful (Sessions)	Stateless (JWT)
+Where is session stored?	On the server	On the client (token)
+Scalability	Harder (server must store sessions)	Easier (no server memory)
+Security	More secure (session invalidates easily)	Must handle token expiration manually
+Logout	Easy — just delete session	Harder — must blacklist token
+Common use	Web apps (Express, Django)	APIs, mobile apps
+✅ Summary
+Step	Description
+1. Login	Server authenticates and creates session
+2. Session Storage	express-session keeps session in memory
+3. Cookie	Client stores session ID
+4. Middleware	Validates req.session.userId on each request
+5. Expiry	Session auto-expires after 10 minutes
+6. Logout	Session destroyed → user logged out
+
+
+              ┌────────────────────────────┐
+              │ 1️⃣ User Logs In           │
+              │  → Server verifies user    │
+              │  → Creates session         │
+              │  → Sends cookie            │
+              └──────────────┬─────────────┘
+                             │
+                             ▼
+              ┌────────────────────────────┐
+              │ 2️⃣ Cookie Stored on Client│
+              │  → Sent automatically      │
+              │    with next requests      │
+              └──────────────┬─────────────┘
+                             │
+                             ▼
+              ┌────────────────────────────┐
+              │ 3️⃣ Middleware Checks      │
+              │  → req.session.userId?     │
+              │  → YES → allow request     │
+              │  → NO  → 401 Unauthorized  │
+              └──────────────┬─────────────┘
+                             │
+                             ▼
+              ┌────────────────────────────┐
+              │ 4️⃣ Session Expires or      │
+              │     User Logs Out          │
+              │  → Session destroyed       │
+              │  → Cookie cleared          │
+              └────────────────────────────┘
+
+
+
+
+🍪 What Are Cookies?
+
+Cookies are small pieces of data that a server stores on a client’s browser to remember information between requests.
+
+You can think of them like a “memory card” for the web — they help the server recognize who the client is when the client makes another request.
+
+🌍 Why Cookies Exist
+
+HTTP (the web protocol) is stateless —
+meaning every new request is treated as if it comes from a brand-new user.
+
+The server doesn’t automatically remember you — even if you just logged in 2 seconds ago.
+
+Cookies fix this by storing small bits of information on the client side (like a session ID, theme preference, or shopping cart).
+
+⚙️ How Cookies Work (Step-by-Step)
+
+Let’s use your Stateful Authentication backend as an example:
+
+🧩 Step 1 — Client Logs In
+
+You send credentials:
+
+POST /api/user/login
+{ "username": "prakhar", "password": "1234" }
+
+
+The server checks the credentials.
+
+On success, it creates a session (with your userId) and sends back a cookie like this:
+
+Set-Cookie: connect.sid=s%3Aabc123xyz; Path=/; HttpOnly
+
+🧩 Step 2 — Browser Stores Cookie
+
+The browser (or Postman) automatically saves this cookie.
+
+You don’t need to manually handle it.
+
+🧩 Step 3 — Client Sends Cookie Automatically
+
+On every next request (like fetching tasks):
+
+GET /api/task
+
+
+The browser automatically adds:
+
+Cookie: connect.sid=s%3Aabc123xyz
+
+
+The server checks this session ID → finds it in memory → identifies you as “Prakhar”.
+
+✅ You’re authenticated without sending your password again!
+
+💡 Example Visualization
+Client (Browser)
+    |
+    |-- POST /login --> [Server verifies credentials]
+    |
+    |<-- Set-Cookie: connect.sid=abc123  (Server sends cookie)
+    |
+    |-- GET /api/task
+    |   Cookie: connect.sid=abc123  (Browser sends cookie automatically)
+    |
+    |<-- Server finds session "abc123" = userId: 1, returns tasks
+
+🧠 What’s Inside a Cookie?
+
+A cookie is just a key-value pair, with extra properties.
+
+Example:
+
+connect.sid=s%3Aabc123xyz; Path=/; HttpOnly; Max-Age=600
+
+Property	Meaning
+connect.sid	Cookie name (your session ID)
+s%3Aabc123xyz	Encrypted value
+Path=/	Cookie is sent for all paths in the site
+HttpOnly	Can’t be accessed by JavaScript (prevents XSS attacks)
+Max-Age=600	Expires after 600 seconds (10 minutes)
+🔒 Cookie Security Options
+
+When configuring express-session, you can define cookie behavior:
+
+app.use(session({
+  secret: process.env.SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    maxAge: 10 * 60 * 1000,   // 10 minutes
+    httpOnly: true,           // prevents JS access
+    secure: false,            // true = HTTPS only
+  }
+}));
+
+Option	Description
+maxAge	How long cookie lives (in milliseconds)
+httpOnly	Stops JS from reading it (reduces hacking risk)
+secure	Sends cookie only over HTTPS (for production)
+📦 Cookie Storage Limits
+
+Each cookie is about 4KB max in size.
+
+Each domain can store around 20 cookies.
+
+They are automatically managed by browsers.
+
+📊 Cookies vs Other Storage
+Feature	Cookie	Local Storage	Session Storage
+Sent to server automatically	✅ Yes	❌ No	❌ No
+Good for authentication	✅ Yes (session ID)	⚠️ Risky	⚠️ Risky
+Persistent after closing browser	✅ (if not expired)	✅	❌
+Accessed by JavaScript	❌ if HttpOnly	✅	✅
+✅ Summary
+Concept	Explanation
+What	Small data stored in browser
+Purpose	Let server remember user between requests
+Used for	Login sessions, preferences, tracking
+In your project	Stores session ID created by express-session
+Automatically handled by	Browser or Postman
+Security	Controlled using httpOnly, secure, and expiration time
+🧩 In short:
+
+🔹 Cookie = ID card the browser carries
+🔹 Session = Record in the server’s database/memory
+🔹 Together, they make stateful authentication possible ✅
